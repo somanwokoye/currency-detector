@@ -18,9 +18,11 @@ const Detector: React.FC = () => {
 	const videoRef = useRef<HTMLVideoElement>(null);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const [model, setModel] = useState<tf.GraphModel | null>(null);
+    const [latestLabel, setLatestLabel] = useState<string | null>(null);
+
 
 	useEffect(() => {
-		const setup = async () => {
+		const load = async () => {
 			await tf.setBackend("webgl");
 			await tf.ready();
 			const loadedModel = await tf.loadGraphModel(MODEL_URL);
@@ -28,32 +30,37 @@ const Detector: React.FC = () => {
 
 			const stream = await navigator.mediaDevices.getUserMedia({
 				video: { facingMode: "environment" },
+				audio: false,
 			});
-			if (videoRef.current) videoRef.current.srcObject = stream;
+			if (videoRef.current) {
+				videoRef.current.srcObject = stream;
+			}
 		};
 
-		setup();
+		load();
 	}, []);
 
 	const detect = async () => {
+        
 		if (!model || !videoRef.current || !canvasRef.current) return;
 
 		const video = videoRef.current;
 
-		const inputTensor = tf.tidy(
-			() =>
-				tf.browser
-					.fromPixels(video)
-					.resizeBilinear([320, 320])
-					.toFloat()
-					.sub(127.5)
-					.div(127.5)
-					.expandDims(0), // shape [1, 320, 320, 3]
+		const inputTensor = tf.tidy(() =>
+			tf.browser
+				.fromPixels(video)
+				.resizeBilinear([320, 320]) // model expects 320x320
+				.toFloat()
+				.sub(127.5)
+				.div(127.5)
+				.expandDims(0),
 		);
 
-		const [boxes, classes, scores] = (await model.executeAsync(
-			inputTensor,
-		)) as tf.Tensor[];
+		const predictions = (await model.executeAsync(inputTensor)) as tf.Tensor[];
+
+		const boxes = predictions[0]; // [1, num, 4]
+		const classes = predictions[1]; // [1, num]
+		const scores = predictions[2]; // [1, num]
 
 		const boxesData = (await boxes.array()) as number[][][];
 		const classesData = (await classes.array()) as number[][];
@@ -80,11 +87,14 @@ const Detector: React.FC = () => {
 				const classIndex = Math.round(classesData[0][i]);
 				const label = LABELS[classIndex] || `Class ${classIndex}`;
 				ctx.fillStyle = "black";
+				ctx.font = "14px Arial";
 				ctx.fillText(`${label} (${Math.round(score * 100)}%)`, x + 4, y + 14);
 			}
 		});
 
-		tf.dispose([inputTensor, boxes, scores, classes]);
+		tf.dispose(predictions);
+		tf.dispose(inputTensor);
+
 		requestAnimationFrame(detect);
 	};
 
