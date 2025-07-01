@@ -3,6 +3,7 @@ import * as tf from "@tensorflow/tfjs";
 import "@tensorflow/tfjs-backend-webgl";
 
 const MODEL_URL = "/web_model/model.json";
+
 const LABELS = [
 	"10 Naira",
 	"20 Naira",
@@ -38,30 +39,34 @@ const Detector: React.FC = () => {
 		if (!model || !videoRef.current || !canvasRef.current) return;
 
 		const video = videoRef.current;
-		const tensor = tf.tidy(() =>
-			tf.browser
-				.fromPixels(video)
-				.resizeBilinear([320, 320])
-				.toFloat()
-				.div(255.0)
-				.expandDims(0),
+
+		const inputTensor = tf.tidy(
+			() =>
+				tf.browser
+					.fromPixels(video)
+					.resizeBilinear([320, 320])
+					.toFloat()
+					.sub(127.5)
+					.div(127.5)
+					.expandDims(0), // shape [1, 320, 320, 3]
 		);
 
-		const predictions = (await model.executeAsync(
-			tensor,
-		)) as tf.Tensor<tf.Rank>[];
-		const [boxes, scores, classes] = predictions;
+		const [boxes, classes, scores] = (await model.executeAsync(
+			inputTensor,
+		)) as tf.Tensor[];
 
-		const boxesData = boxes.arraySync() as number[][][];
-		const scoresData = scores.arraySync() as number[][];
-		const classesData = classes.arraySync() as number[][];
+		const boxesData = (await boxes.array()) as number[][][];
+		const classesData = (await classes.array()) as number[][];
+		const scoresData = (await scores.array()) as number[][];
 
 		const ctx = canvasRef.current.getContext("2d");
 		if (!ctx) return;
+
 		ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
 
 		boxesData[0].forEach((box, i) => {
-			if (scoresData[0][i] > 0.5) {
+			const score = scoresData[0][i];
+			if (score > 0.5) {
 				const [ymin, xmin, ymax, xmax] = box;
 				const x = xmin * video.width;
 				const y = ymin * video.height;
@@ -72,34 +77,34 @@ const Detector: React.FC = () => {
 				ctx.lineWidth = 2;
 				ctx.strokeRect(x, y, width, height);
 
-				const label = LABELS[Math.round(classesData[0][i]) - 1] || "Unknown";
+				const classIndex = Math.round(classesData[0][i]);
+				const label = LABELS[classIndex] || `Class ${classIndex}`;
 				ctx.fillStyle = "black";
-				ctx.fillText(label, x + 4, y + 12);
+				ctx.fillText(`${label} (${Math.round(score * 100)}%)`, x + 4, y + 14);
 			}
 		});
 
-		tf.dispose(predictions);
-		tf.dispose(tensor);
+		tf.dispose([inputTensor, boxes, scores, classes]);
 		requestAnimationFrame(detect);
 	};
 
 	return (
-		<div style={{ position: "relative", width: 300, height: 300 }}>
+		<div style={{ position: "relative", width: 320, height: 320 }}>
 			<video
 				ref={videoRef}
-				width={300}
-				height={300}
+				width={320}
+				height={320}
 				autoPlay
 				playsInline
 				muted
 				onLoadedData={detect}
-				style={{ position: "absolute" }}
+				style={{ position: "absolute", top: 0, left: 0 }}
 			/>
 			<canvas
 				ref={canvasRef}
-				width={300}
-				height={300}
-				style={{ position: "absolute" }}
+				width={320}
+				height={320}
+				style={{ position: "absolute", top: 0, left: 0 }}
 			/>
 		</div>
 	);
