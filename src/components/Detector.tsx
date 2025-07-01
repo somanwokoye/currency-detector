@@ -3,7 +3,6 @@ import * as tf from "@tensorflow/tfjs";
 import "@tensorflow/tfjs-backend-webgl";
 
 const MODEL_URL = "/web_model/model.json";
-
 const LABELS = [
 	"10 Naira",
 	"20 Naira",
@@ -42,7 +41,7 @@ const Detector: React.FC = () => {
 		const tensor = tf.tidy(() =>
 			tf.browser
 				.fromPixels(video)
-				.resizeBilinear([300, 300]) // Match training size
+				.resizeBilinear([320, 320])
 				.toFloat()
 				.div(255.0)
 				.expandDims(0),
@@ -51,8 +50,8 @@ const Detector: React.FC = () => {
 		const predictions = (await model.executeAsync(
 			tensor,
 		)) as tf.Tensor<tf.Rank>[];
+		const [boxes, scores, classes] = predictions;
 
-		const [boxes, scores, classes, num] = predictions;
 		const boxesData = boxes.arraySync() as number[][][];
 		const scoresData = scores.arraySync() as number[][];
 		const classesData = classes.arraySync() as number[][];
@@ -105,6 +104,5 @@ const Detector: React.FC = () => {
 		</div>
 	);
 };
-
 
 export default Detector;
